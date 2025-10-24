@@ -8,8 +8,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-file_path = r"data\IP_PT2_QB_Sagar.pdf"
-
 def load_document(file_path):
     extension = os.path.splitext(file_path)[1].lower()
     
@@ -36,7 +34,6 @@ def load_document(file_path):
     else:
         raise ValueError(f"Unsopported file type: {extension}")
 
-documents = load_document(file_path=file_path)
 
 def chunking(documents):
 
@@ -50,7 +47,6 @@ def chunking(documents):
     chunks = text_splitter.split_documents(documents)
     return chunks
     
-chunks = chunking(documents)
 
 def embedding_and_retrieval(chunks, query):
     embedding_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
@@ -83,45 +79,56 @@ def embedding_and_retrieval(chunks, query):
             
     return filtered_chunks
 
-query="List the various ways of receiving response from server using AJAX"
-relevant_chunks=embedding_and_retrieval(chunks=chunks,query=query)
 
-client = Groq(
-    api_key=os.getenv("GROQ_API_KEY"),
-)
+def response_generation(prompt):
+    client = Groq(
+        api_key=os.getenv("GROQ_API_KEY"),
+    )
 
-prompt = f"""
-You are a precise document analysis assistant. Answer the user's question using ONLY the information from the provided document content.
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        model="llama-3.3-70b-versatile",
+        temperature=0.3,
+        top_p=0.9,
+        stream=False
+    )
 
-DOCUMENT CONTENT:
-{relevant_chunks}
+    response = chat_completion.choices[0].message.content
+    print(response)
+    
+    
+def main():
+    file_path = r"data\IP_PT2_QB_Sagar.pdf"
+    documents = load_document(file_path=file_path)
+    chunks = chunking(documents)        
+    query="List the various ways of receiving response from server using AJAX"
+    relevant_chunks=embedding_and_retrieval(chunks=chunks,query=query)
+    
+    prompt = f"""
+    You are a precise document analysis assistant. Answer the user's question using ONLY the information from the provided document content.
 
-USER QUESTION: {query}
+    DOCUMENT CONTENT:
+    {relevant_chunks}
 
-STRICT INSTRUCTIONS:
-1. Focus on the specific question about "receiving response from server using AJAX"
-2. List all response types mentioned in the document
-3. Include how to handle each response type
-4. Use ONLY the exact information from the document
-5. Include source page numbers for each point
-6. Be concise and organized
+    USER QUESTION: {query}
 
-Answer:
-"""
+    STRICT INSTRUCTIONS:
+    1. Focus on the specific question about "receiving response from server using AJAX"
+    2. List all response types mentioned in the document
+    3. Include how to handle each response type
+    4. Use ONLY the exact information from the document
+    5. Include source page numbers for each point
+    6. Be concise and organized
 
-chat_completion = client.chat.completions.create(
-    messages=[
-        {
-            "role": "user",
-            "content": prompt
-        }
-    ],
-    model="llama-3.3-70b-versatile",
-    temperature=0.3,
-    top_p=0.9,
-    stream=False
-)
+    Answer:
+    """
+    
+    response_generation(prompt)
 
-
-print(chat_completion.choices[0].message.content)
-
+if __name__ == "__main__":
+    main()
