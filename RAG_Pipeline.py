@@ -45,33 +45,37 @@ def chunking(documents):
     )
 
     chunks = text_splitter.split_documents(documents)
-    # print("all chunks:")
-    # print(chunks, end="/n")
     return chunks
     
-
-def embedding_and_retrieval(chunks, query, db_name="default"):
-    embedding_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+def get_vectorstore():
     
-    # Create unique database path for each file
-    db_path = f"./chroma_db_{db_name}"
+    embedding_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    vectorstore = Chroma(
+            collection_name="my_docs",
+            embedding_function=embedding_model,
+            persist_directory="./chroma_db"   
+        )
+    return vectorstore
 
-    if os.path.exists(db_path):
-        vectorstore = Chroma(
-            collection_name="my_docs",
-            embedding_function=embedding_model,
-            persist_directory=db_path   
-        )
-        print(f"Loaded existing vector database: {db_name}")
-    else:
-        vectorstore = Chroma(
-            collection_name="my_docs",
-            embedding_function=embedding_model,
-            persist_directory=db_path   
-        )
+def add_document_to_db(chunks):
+    
+    vectorstore = get_vectorstore()
+    source_path = chunks[0].metadata.get('source')
+        
+    existing_docs = vectorstore.get(where={"source": source_path})
+        
+    if len(existing_docs['ids']) == 0:
         vectorstore.add_documents(chunks)
-        print(f"Created new vector database: {db_name}")
+    
+def delete_document_from_db(path):
+    
+    vectorstore = get_vectorstore()
+    vectorstore._collection.delete(where={"source": path})
 
+
+def relevant_chunk_retreival(query):
+
+    vectorstore = get_vectorstore()
     relevant_chunks = vectorstore.similarity_search_with_score(
         query=query,
         k=8
@@ -79,18 +83,9 @@ def embedding_and_retrieval(chunks, query, db_name="default"):
     
     return relevant_chunks      
     
-    # print("relevant chunks:")  
-    # print(relevant_chunks, end="/n")
-    # filtered_chunks = []
-    # for doc,score in relevant_chunks:
-    #     if score < 1.5:
-    #         filtered_chunks.append(doc)
-    # print("filtered chunks:")  
-    # print(filtered_chunks, end="/n")        
-    #return relevant_chunks
-
 
 def response_generation(prompt):
+    
     client = Groq(
         api_key=os.getenv("GROQ_API_KEY"),
     )
@@ -113,11 +108,14 @@ def response_generation(prompt):
     
     
 def rag_pipeline(file_path, query):
+    
     documents = load_document(file_path=file_path)
     
     chunks = chunking(documents)      
-    file_name = os.path.splitext(os.path.basename(file_path))[0]  
-    relevant_chunks=embedding_and_retrieval(chunks=chunks,query=query, db_name=file_name)
+    
+    add_document_to_db(chunks)
+    
+    relevant_chunks=relevant_chunk_retreival(query)
     
     prompt = f"""
     You are a precise document analysis assistant. Answer the user's question using ONLY the information from the provided document content.
@@ -134,7 +132,7 @@ def rag_pipeline(file_path, query):
     4. If the document doesn't directly answer the question but contains related information, share what you can infer
     5. Since your response will be converted to audio which sounds like a human, give your answer like a human.
     6. Only say you cannot find the answer if the document content is completely irrelevant
-    7. Give the page number / numbers at the bottom. The 'page' metadata you receive is zero-indexed, so you MUST add 1 to the page number before citing it (e.g., if metadata 'page' is 0, cite 'Page 1'). Format as: Sources: Page X,Y,Z etc
+    7. Give the page number / numbers and the File Name / File Names at the bottom. The 'page' metadata you receive is zero-indexed, so you MUST add 1 to the page number before citing it (e.g., if metadata 'page' is 0, cite 'Page 1'). Format as: [ Sources: File: A, Page X,Y,Z,  File B, Page J,K,L etc ]
 
     Answer:
     """
